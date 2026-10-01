@@ -15,7 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,8 +26,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import kotlin.random.Random
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.*
 
 class MainActivity : ComponentActivity() {
 
@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
                 Surface(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    CallShareApp()
+                    ShineApp()
                 }
             }
         }
@@ -47,78 +47,163 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun CallShareApp() {
+fun ShineApp() {
 
-    var selectedRole by remember { mutableStateOf<String?>(null) }
+    val auth = remember { FirebaseAuth.getInstance() }
+    val database = remember { FirebaseDatabase.getInstance().reference }
 
-    when (selectedRole) {
-        null -> RoleSelectionScreen(
-            onSender = { selectedRole = "Sender" },
-            onReceiver = { selectedRole = "Receiver" }
-        )
+    var authenticated by remember { mutableStateOf(false) }
+    var role by remember { mutableStateOf<String?>(null) }
 
-        "Sender" -> SenderScreen(
-            onBack = { selectedRole = null }
-        )
+    var pairingCode by remember { mutableStateOf("") }
+    var enteredCode by remember { mutableStateOf("") }
 
-        "Receiver" -> ReceiverScreen(
-            onBack = { selectedRole = null }
-        )
+    var status by remember { mutableStateOf("Connecting to Shine...") }
+    var connected by remember { mutableStateOf(false) }
+
+    var senderUid by remember { mutableStateOf<String?>(null) }
+
+    /*
+     * Firebase anonymous authentication.
+     * No username, password or OTP is required.
+     */
+    LaunchedEffect(Unit) {
+
+        if (auth.currentUser != null) {
+            authenticated = true
+            status = "Ready"
+        } else {
+            auth.signInAnonymously()
+                .addOnSuccessListener {
+                    authenticated = true
+                    status = "Ready"
+                }
+                .addOnFailureListener { error ->
+                    status = "Firebase connection failed: ${error.message}"
+                }
+        }
     }
-}
 
-@Composable
-fun RoleSelectionScreen(
-    onSender: () -> Unit,
-    onReceiver: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
+    if (!authenticated) {
 
-        Text(
-            text = "Shine",
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "Choose how this phone will be used"
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Button(
-            onClick = onSender,
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text("Sender")
+
+            Text(
+                text = "Shine",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(text = status)
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        return
+    }
 
-        Button(
-            onClick = onReceiver,
-            modifier = Modifier.fillMaxWidth()
+    if (role == null) {
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text("Receiver")
+
+            Text(
+                text = "Shine",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "Connect two phones securely"
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Button(
+                onClick = {
+                    role = "sender"
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Sender")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = {
+                    role = "receiver"
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Receiver")
+            }
         }
+
+        return
+    }
+
+    if (role == "sender") {
+
+        SenderScreen(
+            database = database,
+            uid = auth.currentUser!!.uid,
+            pairingCode = pairingCode,
+            connected = connected,
+            status = status,
+            onCodeGenerated = { code ->
+                pairingCode = code
+            },
+            onConnected = {
+                connected = true
+                status = "Receiver connected"
+            }
+        )
+
+    } else {
+
+        ReceiverScreen(
+            database = database,
+            uid = auth.currentUser!!.uid,
+            enteredCode = enteredCode,
+            connected = connected,
+            status = status,
+            onCodeChanged = {
+                enteredCode = it
+            },
+            onConnected = {
+                connected = true
+                status = "Connected to Sender"
+            }
+        )
     }
 }
 
 @Composable
 fun SenderScreen(
-    onBack: () -> Unit
+    database: DatabaseReference,
+    uid: String,
+    pairingCode: String,
+    connected: Boolean,
+    status: String,
+    onCodeGenerated: (String) -> Unit,
+    onConnected: () -> Unit
 ) {
 
-    var pairingCode by remember { mutableStateOf<String?>(null) }
-    var paired by remember { mutableStateOf(false) }
+    var localStatus by remember { mutableStateOf(status) }
 
     Column(
         modifier = Modifier
@@ -129,26 +214,39 @@ fun SenderScreen(
     ) {
 
         Text(
-            text = "Sender",
-            fontSize = 28.sp,
+            text = "Shine — Sender",
+            style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        if (pairingCode == null) {
-
-            Text(
-                text = "Generate a pairing code for the Receiver."
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
+        if (pairingCode.isEmpty()) {
 
             Button(
                 onClick = {
-                    pairingCode = generatePairingCode()
-                },
-                modifier = Modifier.fillMaxWidth()
+
+                    val code = (100000..999999).random().toString()
+
+                    val data = hashMapOf<String, Any>(
+                        "senderUid" to uid,
+                        "status" to "waiting",
+                        "createdAt" to ServerValue.TIMESTAMP
+                    )
+
+                    database.child("pairingCodes")
+                        .child(code)
+                        .setValue(data)
+                        .addOnSuccessListener {
+
+                            onCodeGenerated(code)
+                            localStatus = "Waiting for Receiver..."
+                        }
+                        .addOnFailureListener { error ->
+                            localStatus =
+                                "Failed to create code: ${error.message}"
+                        }
+                }
             ) {
                 Text("Generate Pairing Code")
             }
@@ -156,61 +254,72 @@ fun SenderScreen(
         } else {
 
             Text(
-                text = "Your Pairing Code",
-                fontSize = 18.sp
+                text = pairingCode,
+                style = MaterialTheme.typography.displayMedium,
+                fontWeight = FontWeight.Bold
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            Text(
-                text = pairingCode!!,
-                fontSize = 40.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 6.sp
-            )
+            Text(localStatus)
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            Text(
-                text = "Enter this code on the Receiver phone."
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            if (paired) {
-
+            if (connected) {
                 Text(
-                    text = "✓ Receiver Paired",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-            } else {
-
-                Text(
-                    text = "Waiting for Receiver..."
+                    text = "🟢 Connected",
+                    style = MaterialTheme.typography.titleLarge
                 )
             }
-        }
 
-        Spacer(modifier = Modifier.height(32.dp))
+            /*
+             * Listen for Receiver joining this code.
+             */
+            LaunchedEffect(pairingCode) {
 
-        Button(
-            onClick = onBack,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Back")
+                val reference =
+                    database.child("pairingCodes").child(pairingCode)
+
+                reference.addValueEventListener(
+                    object : ValueEventListener {
+
+                        override fun onDataChange(snapshot: DataSnapshot) {
+
+                            val receiverUid =
+                                snapshot.child("receiverUid")
+                                    .getValue(String::class.java)
+
+                            if (!receiverUid.isNullOrEmpty()) {
+
+                                localStatus = "Receiver connected"
+
+                                onConnected()
+                            }
+                        }
+
+                        override fun onCancelled(error: DatabaseError) {
+                            localStatus =
+                                "Connection error: ${error.message}"
+                        }
+                    }
+                )
+            }
         }
     }
 }
 
 @Composable
 fun ReceiverScreen(
-    onBack: () -> Unit
+    database: DatabaseReference,
+    uid: String,
+    enteredCode: String,
+    connected: Boolean,
+    status: String,
+    onCodeChanged: (String) -> Unit,
+    onConnected: () -> Unit
 ) {
 
-    var enteredCode by remember { mutableStateOf("") }
-    var paired by remember { mutableStateOf(false) }
+    var localStatus by remember { mutableStateOf(status) }
 
     Column(
         modifier = Modifier
@@ -221,84 +330,105 @@ fun ReceiverScreen(
     ) {
 
         Text(
-            text = "Receiver",
-            fontSize = 28.sp,
+            text = "Shine — Receiver",
+            style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        OutlinedTextField(
+            value = enteredCode,
+            onValueChange = {
+                if (it.length <= 6 && it.all { char -> char.isDigit() }) {
+                    onCodeChanged(it)
+                }
+            },
+            label = {
+                Text("Enter Sender Code")
+            },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number
+            ),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (!paired) {
+        Button(
+            onClick = {
 
-            Text(
-                text = "Enter the pairing code shown on the Sender."
-            )
+                if (enteredCode.length != 6) {
+                    localStatus = "Enter a 6-digit code"
+                    return@Button
+                }
 
-            Spacer(modifier = Modifier.height(24.dp))
+                localStatus = "Connecting..."
 
-            OutlinedTextField(
-                value = enteredCode,
-                onValueChange = {
-                    if (it.length <= 6 && it.all { char -> char.isDigit() }) {
-                        enteredCode = it
+                val reference =
+                    database.child("pairingCodes").child(enteredCode)
+
+                reference.get()
+                    .addOnSuccessListener { snapshot ->
+
+                        if (!snapshot.exists()) {
+
+                            localStatus = "Invalid pairing code"
+                            return@addOnSuccessListener
+                        }
+
+                        val senderUid =
+                            snapshot.child("senderUid")
+                                .getValue(String::class.java)
+
+                        if (senderUid.isNullOrEmpty()) {
+
+                            localStatus = "Invalid pairing data"
+                            return@addOnSuccessListener
+                        }
+
+                        val updates = hashMapOf<String, Any>(
+                            "receiverUid" to uid,
+                            "status" to "connected"
+                        )
+
+                        reference.updateChildren(updates)
+                            .addOnSuccessListener {
+
+                                localStatus = "Connected to Sender"
+
+                                onConnected()
+                            }
+                            .addOnFailureListener { error ->
+
+                                localStatus =
+                                    "Connection failed: ${error.message}"
+                            }
                     }
-                },
-                label = {
-                    Text("Pairing Code")
-                },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number
-                ),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+                    .addOnFailureListener { error ->
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Button(
-                onClick = {
-                    if (enteredCode.length == 6) {
-                        paired = true
+                        localStatus =
+                            "Unable to find code: ${error.message}"
                     }
-                },
-                enabled = enteredCode.length == 6,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Pair")
-            }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Connect")
+        }
 
-        } else {
+        Spacer(modifier = Modifier.height(20.dp))
 
-            Text(
-                text = "✓ Paired Successfully",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold
-            )
+        Text(localStatus)
+
+        if (connected) {
 
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "This Receiver is paired with the Sender."
+                text = "🟢 Connected",
+                style = MaterialTheme.typography.titleLarge
             )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "Waiting for recordings..."
-            )
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Button(
-            onClick = onBack,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Back")
         }
     }
-}
-
-fun generatePairingCode(): String {
-    return Random.nextInt(100000, 1000000).toString()
 }
