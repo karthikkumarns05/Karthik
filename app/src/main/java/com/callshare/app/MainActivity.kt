@@ -81,7 +81,7 @@ fun RoleSelectionScreen(
     ) {
 
         Text(
-            text = "CallShare",
+            text = "Shine",
             fontSize = 32.sp,
             fontWeight = FontWeight.Bold
         )
