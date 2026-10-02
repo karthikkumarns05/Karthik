@@ -10,11 +10,8 @@ import android.os.Build
 import android.os.IBinder
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyManager
-
 import androidx.core.app.NotificationCompat
-
 import java.io.File
-
 
 class CallRecordingService : Service() {
 
@@ -33,22 +30,20 @@ class CallRecordingService : Service() {
             1001
     }
 
-
     private lateinit var telephonyManager:
-        TelephonyManager
+            TelephonyManager
 
     private var phoneStateListener:
-        PhoneStateListener? = null
+            PhoneStateListener? = null
 
     private var mediaRecorder:
-        MediaRecorder? = null
+            MediaRecorder? = null
 
     private var isRecording =
         false
 
     private var recordingFile:
-        File? = null
-
+            File? = null
 
     override fun onCreate() {
 
@@ -63,15 +58,10 @@ class CallRecordingService : Service() {
             )
         )
 
-
-        /*
-         * Monitor cellular call state.
-         */
         telephonyManager =
             getSystemService(
                 TELEPHONY_SERVICE
             ) as TelephonyManager
-
 
         phoneStateListener =
             object : PhoneStateListener() {
@@ -94,7 +84,6 @@ class CallRecordingService : Service() {
                             startRecording()
                         }
 
-
                         TelephonyManager
                             .CALL_STATE_IDLE -> {
 
@@ -104,20 +93,15 @@ class CallRecordingService : Service() {
                 }
             }
 
-
-        /*
-         * Register call-state listener.
-         */
         try {
 
             telephonyManager.listen(
                 phoneStateListener,
-                PhoneStateListener
-                    .LISTEN_CALL_STATE
+                PhoneStateListener.LISTEN_CALL_STATE
             )
 
         } catch (
-            exception: SecurityException
+            _: SecurityException
         ) {
 
             updateNotification(
@@ -125,7 +109,6 @@ class CallRecordingService : Service() {
             )
         }
     }
-
 
     override fun onStartCommand(
         intent: Intent?,
@@ -144,7 +127,6 @@ class CallRecordingService : Service() {
                 )
             }
 
-
             ACTION_STOP_MONITORING -> {
 
                 stopRecording()
@@ -153,18 +135,8 @@ class CallRecordingService : Service() {
             }
         }
 
-
-        /*
-         * Keep monitoring after Android
-         * temporarily removes the process.
-         */
         return START_STICKY
     }
-
-
-    /* ========================================================
-       START RECORDING
-       ======================================================== */
 
     private fun startRecording() {
 
@@ -172,16 +144,10 @@ class CallRecordingService : Service() {
             return
         }
 
-
-        /*
-         * Save recordings in Shine's private
-         * external files directory.
-         */
         val directory =
             getExternalFilesDir(
                 "recordings"
             )
-
 
         if (directory == null) {
 
@@ -192,105 +158,89 @@ class CallRecordingService : Service() {
             return
         }
 
-
         if (!directory.exists()) {
             directory.mkdirs()
         }
 
-
-        val fileName =
-            "shine_${System.currentTimeMillis()}.m4a"
-
-
         recordingFile =
             File(
                 directory,
-                fileName
+                "shine_${System.currentTimeMillis()}.m4a"
             )
-
 
         try {
 
             val recorder =
-                if (Build.VERSION.SDK_INT >= 31) {
+                if (
+                    Build.VERSION.SDK_INT >= 31
+                ) {
 
-                    MediaRecorder(
-                        this
-                    )
+                    MediaRecorder(this)
 
                 } else {
 
-                    @Suppress(
-                        "DEPRECATION"
-                    )
+                    @Suppress("DEPRECATION")
                     MediaRecorder()
                 }
 
-
             /*
-             * MICROPHONE is the normal permission-based
-             * audio source available to a third-party app.
+             * MIC is intentionally used here.
              *
-             * Android may restrict what is captured while
-             * a cellular call is active.
+             * Android does not guarantee that a normal
+             * third-party application can capture the
+             * remote side of a cellular call.
              */
             recorder.setAudioSource(
                 MediaRecorder.AudioSource.MIC
             )
 
-
             recorder.setOutputFormat(
                 MediaRecorder.OutputFormat.MPEG_4
             )
-
 
             recorder.setAudioEncoder(
                 MediaRecorder.AudioEncoder.AAC
             )
 
-
             recorder.setAudioEncodingBitRate(
                 128000
             )
-
 
             recorder.setAudioSamplingRate(
                 44100
             )
 
-
             recorder.setOutputFile(
                 recordingFile!!.absolutePath
             )
-
 
             recorder.prepare()
 
             recorder.start()
 
-
             mediaRecorder =
                 recorder
 
-            isRecording =
-                true
-
+            isRecording = true
 
             updateNotification(
                 "🔴 Recording call..."
             )
 
         } catch (
-            exception: Exception
+            _: Exception
         ) {
 
-            mediaRecorder?.release()
+            try {
+                mediaRecorder?.release()
+            } catch (
+                _: Exception
+            ) {
+            }
 
-            mediaRecorder =
-                null
+            mediaRecorder = null
 
-            isRecording =
-                false
+            isRecording = false
 
             updateNotification(
                 "Unable to record call"
@@ -298,52 +248,38 @@ class CallRecordingService : Service() {
         }
     }
 
-
-    /* ========================================================
-       STOP RECORDING
-       ======================================================== */
-
     private fun stopRecording() {
 
         if (!isRecording) {
             return
         }
 
-
         try {
 
             mediaRecorder?.stop()
 
         } catch (
-            exception: Exception
+            _: Exception
         ) {
         }
-
 
         try {
 
             mediaRecorder?.release()
 
         } catch (
-            exception: Exception
+            _: Exception
         ) {
         }
 
+        mediaRecorder = null
 
-        mediaRecorder =
-            null
-
-        isRecording =
-            false
-
+        isRecording = false
 
         val finishedFile =
             recordingFile
 
-
-        recordingFile =
-            null
-
+        recordingFile = null
 
         if (
             finishedFile != null &&
@@ -351,13 +287,6 @@ class CallRecordingService : Service() {
             finishedFile.length() > 0
         ) {
 
-            /*
-             * Recording has been successfully
-             * saved locally.
-             *
-             * Firebase upload will be connected
-             * in the next step.
-             */
             updateNotification(
                 "Recording saved"
             )
@@ -369,11 +298,6 @@ class CallRecordingService : Service() {
             )
         }
     }
-
-
-    /* ========================================================
-       NOTIFICATION
-       ======================================================== */
 
     private fun createNotification(
         text: String
@@ -390,12 +314,12 @@ class CallRecordingService : Service() {
                 text
             )
             .setSmallIcon(
-                android.R.drawable.ic_btn_speak_now
+                android.R.drawable
+                    .ic_btn_speak_now
             )
             .setOngoing(true)
             .build()
     }
-
 
     private fun updateNotification(
         text: String
@@ -411,7 +335,6 @@ class CallRecordingService : Service() {
             createNotification(text)
         )
     }
-
 
     private fun createNotificationChannel() {
 
@@ -439,11 +362,6 @@ class CallRecordingService : Service() {
         }
     }
 
-
-    /* ========================================================
-       CLEANUP
-       ======================================================== */
-
     override fun onDestroy() {
 
         stopRecording()
@@ -454,12 +372,11 @@ class CallRecordingService : Service() {
 
                 telephonyManager.listen(
                     it,
-                    PhoneStateListener
-                        .LISTEN_NONE
+                    PhoneStateListener.LISTEN_NONE
                 )
 
             } catch (
-                exception: Exception
+                _: Exception
             ) {
             }
         }
@@ -467,11 +384,7 @@ class CallRecordingService : Service() {
         super.onDestroy()
     }
 
-
     override fun onBind(
         intent: Intent?
-    ): IBinder? {
-
-        return null
-    }
+    ): IBinder? = null
 }
