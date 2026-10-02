@@ -645,6 +645,8 @@ fun DashboardScreen(
     onUnpair: () -> Unit
 ) {
 
+    val isReceiver = role == "receiver"
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -656,37 +658,34 @@ fun DashboardScreen(
          */
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement =
-                Arrangement.SpaceBetween,
-            verticalAlignment =
-                Alignment.CenterVertically
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
 
             Column {
 
                 Text(
                     text = "Shine",
-                    style =
-                        MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    text =
-                        if (role == "sender")
-                            "Sender"
-                        else
-                            "Receiver"
+                    text = if (isReceiver) "Receiver" else "Sender"
                 )
             }
 
-            Text(
-                text =
-                    if (connected)
+            /*
+             * Connection status is shown ONLY on Receiver.
+             */
+            if (isReceiver) {
+                Text(
+                    text = if (connected)
                         "🟢 Connected"
                     else
                         "🔴 Offline"
-            )
+                )
+            }
         }
 
         Spacer(
@@ -694,89 +693,75 @@ fun DashboardScreen(
         )
 
         /*
-         * Connection card
+         * Connection card is shown ONLY on Receiver.
          */
-        Card(
-            modifier =
-                Modifier.fillMaxWidth()
-        ) {
+        if (isReceiver) {
 
-            Column(
-                modifier =
-                    Modifier.padding(20.dp)
+            Card(
+                modifier = Modifier.fillMaxWidth()
             ) {
 
-                Text(
-                    text = "Connection",
-                    style =
-                        MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(
+                    modifier = Modifier.padding(20.dp)
+                ) {
 
-                Spacer(
-                    modifier =
-                        Modifier.height(8.dp)
-                )
+                    Text(
+                        text = "Connection",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
 
-                Text(
-                    text =
-                        if (role == "sender")
-                            "Receiver connected"
-                        else
+                    Spacer(
+                        modifier = Modifier.height(8.dp)
+                    )
+
+                    Text(
+                        text = if (connected)
                             "Connected to Sender"
-                )
+                        else
+                            "Not connected"
+                    )
 
-                Spacer(
-                    modifier =
-                        Modifier.height(8.dp)
-                )
+                    Spacer(
+                        modifier = Modifier.height(8.dp)
+                    )
 
-                Text(
-                    text =
-                        "Pairing code: $pairingCode"
-                )
+                    Text(
+                        text = "Pairing code: $pairingCode"
+                    )
+                }
             }
-        }
 
-        Spacer(
-            modifier = Modifier.height(20.dp)
-        )
+            Spacer(
+                modifier = Modifier.height(20.dp)
+            )
+        }
 
         /*
          * Main feature card
          */
         Card(
-            modifier =
-                Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth()
         ) {
 
             Column(
-                modifier =
-                    Modifier.padding(20.dp)
+                modifier = Modifier.padding(20.dp)
             ) {
 
-                if (role == "sender") {
+                if (!isReceiver) {
 
                     Text(
-                        text = "📞 Call Recording",
-                        style =
-                            MaterialTheme.typography.titleLarge,
+                        text = "🔍 Analysing",
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
 
                     Spacer(
-                        modifier =
-                            Modifier.height(8.dp)
-                    )
-
-                    Text(
-                        text =
-                            "Recordings will appear here."
+                        modifier = Modifier.height(8.dp)
                     )
 
                     Spacer(
-                        modifier =
-                            Modifier.height(16.dp)
+                        modifier = Modifier.height(16.dp)
                     )
 
                     Button(
@@ -786,35 +771,29 @@ fun DashboardScreen(
                              * will be added next.
                              */
                         },
-                        modifier =
-                            Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-
-                        Text("Start Recording")
+                        Text("Start Analysing")
                     }
 
                 } else {
 
                     Text(
                         text = "🎵 Received Calls",
-                        style =
-                            MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
 
                     Spacer(
-                        modifier =
-                            Modifier.height(8.dp)
+                        modifier = Modifier.height(8.dp)
                     )
 
                     Text(
-                        text =
-                            "Received recordings will appear here."
+                        text = "Received recordings will appear here."
                     )
 
                     Spacer(
-                        modifier =
-                            Modifier.height(16.dp)
+                        modifier = Modifier.height(16.dp)
                     )
 
                     OutlinedButton(
@@ -824,10 +803,8 @@ fun DashboardScreen(
                              * will be added next.
                              */
                         },
-                        modifier =
-                            Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-
                         Text("No Recordings Yet")
                     }
                 }
@@ -839,51 +816,47 @@ fun DashboardScreen(
         )
 
         /*
-         * Settings / future features
+         * Settings
          */
         Card(
-            modifier =
-                Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth()
         ) {
 
             Column(
-                modifier =
-                    Modifier.padding(20.dp)
+                modifier = Modifier.padding(20.dp)
             ) {
 
                 Text(
                     text = "Settings",
-                    style =
-                        MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
 
                 Spacer(
-                    modifier =
-                        Modifier.height(8.dp)
+                    modifier = Modifier.height(8.dp)
                 )
 
                 Text(
-                    text =
-                        "Shine settings will be added here."
+                    text = "Shine settings will be added here."
                 )
             }
         }
 
-        Spacer(
-            modifier = Modifier.height(20.dp)
-        )
-
         /*
-         * Unpair
+         * Unpair is available ONLY to Receiver.
          */
-        OutlinedButton(
-            onClick = onUnpair,
-            modifier =
-                Modifier.fillMaxWidth()
-        ) {
+        if (isReceiver) {
 
-            Text("Disconnect / Unpair")
+            Spacer(
+                modifier = Modifier.height(20.dp)
+            )
+
+            OutlinedButton(
+                onClick = onUnpair,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Disconnect / Unpair")
+            }
         }
     }
 }
