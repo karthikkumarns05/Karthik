@@ -1,23 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Microphone -->
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android">
+
     <uses-permission
         android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- Phone call state -->
     <uses-permission
         android:name="android.permission.READ_PHONE_STATE" />
 
-    <!-- Foreground service -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE" />
 
-    <!-- Android 14+ microphone foreground service -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
-    <!-- Android 13+ notifications -->
     <uses-permission
         android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -43,8 +40,6 @@
 
         </activity>
 
-
-        <!-- Automatic call recording service -->
         <service
             android:name=".CallRecordingService"
             android:enabled="true"
