@@ -2,7 +2,6 @@ package com.callshare.app
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 
 import androidx.activity.ComponentActivity
@@ -25,16 +24,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
@@ -44,9 +42,9 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
-import com.google.firebase.database.FirebaseDatabase
 
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -128,25 +126,23 @@ fun ShineApp(context: Context) {
         mutableStateOf("Connecting to Shine...")
     }
 
-    /*
-     * Controls whether the Dashboard is visible.
-     *
-     * This is important for the Receiver:
-     *
-     * Receiver can have:
-     * role = receiver
-     * pairingCode = ""
-     * connected = false
-     *
-     * and STILL remain on Dashboard.
-     */
     var dashboardVisible by remember {
+        mutableStateOf(false)
+    }
+
+    /*
+     * Recording enabled state.
+     *
+     * Once Start Analysing is pressed, this is saved.
+     * The user does NOT need to press it for every call.
+     */
+    var analysingEnabled by remember {
         mutableStateOf(false)
     }
 
 
     /* ========================================================
-       RESTORE APP STATE
+       RESTORE STATE
        ======================================================== */
 
     LaunchedEffect(Unit) {
@@ -163,33 +159,37 @@ fun ShineApp(context: Context) {
                 false
             )
 
+        val savedAnalysing =
+            preferences.getBoolean(
+                "analysingEnabled",
+                false
+            )
+
+        role = savedRole
+
+        pairingCode =
+            savedCode ?: ""
+
+        connected =
+            !savedCode.isNullOrEmpty()
+
+        dashboardVisible =
+            savedDashboard
+
+        analysingEnabled =
+            savedAnalysing
+
         if (savedRole != null) {
-
-            role = savedRole
-
-            if (!savedCode.isNullOrEmpty()) {
-
-                pairingCode = savedCode
-                connected = true
-            }
-
-            /*
-             * Restore Dashboard state.
-             */
-            if (savedDashboard) {
-                dashboardVisible = true
-            }
-
             status =
                 if (connected)
                     "Paired"
                 else
-                    "Ready to pair"
+                    "Ready"
         }
 
 
         /* ====================================================
-           FIREBASE ANONYMOUS AUTH
+           FIREBASE AUTH
            ==================================================== */
 
         if (auth.currentUser != null) {
@@ -244,11 +244,13 @@ fun ShineApp(context: Context) {
                 text = "Shine",
                 style =
                     MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold
+                fontWeight =
+                    FontWeight.Bold
             )
 
             Spacer(
-                modifier = Modifier.height(20.dp)
+                modifier =
+                    Modifier.height(20.dp)
             )
 
             Text(status)
@@ -260,21 +262,7 @@ fun ShineApp(context: Context) {
 
     /* ========================================================
        SENDER UNPAIR LISTENER
-       ========================================================
-
-       Only the SENDER listens for "unpaired".
-
-       When Receiver disconnects:
-
-       Firebase:
-       status = unpaired
-
-       Sender:
-       Dashboard -> Sender pairing screen
-
-       Receiver:
-       stays on Dashboard
-    */
+       ======================================================== */
 
     LaunchedEffect(
         role,
@@ -294,6 +282,7 @@ fun ShineApp(context: Context) {
             .child("pairingCodes")
             .child(pairingCode)
             .addValueEventListener(
+
                 object : ValueEventListener {
 
                     override fun onDataChange(
@@ -303,19 +292,21 @@ fun ShineApp(context: Context) {
                         val firebaseStatus =
                             snapshot
                                 .child("status")
-                                .getValue(String::class.java)
+                                .getValue(
+                                    String::class.java
+                                )
 
                         if (
-                            firebaseStatus == "unpaired"
+                            firebaseStatus ==
+                            "unpaired"
                         ) {
 
-                            /*
-                             * Keep sender role.
-                             *
-                             * Only remove old pairing.
-                             */
                             preferences.edit()
                                 .remove("pairingCode")
+                                .putString(
+                                    "role",
+                                    "sender"
+                                )
                                 .putBoolean(
                                     "dashboardVisible",
                                     false
@@ -325,6 +316,7 @@ fun ShineApp(context: Context) {
                             pairingCode = ""
                             connected = false
                             dashboardVisible = false
+
                             status = "Ready"
                         }
                     }
@@ -332,9 +324,6 @@ fun ShineApp(context: Context) {
                     override fun onCancelled(
                         error: DatabaseError
                     ) {
-                        /*
-                         * Keep current screen.
-                         */
                     }
                 }
             )
@@ -351,15 +340,88 @@ fun ShineApp(context: Context) {
     ) {
 
         DashboardScreen(
-            role = role!!,
-            pairingCode = pairingCode,
-            connected = connected,
-            database = database,
-            uid = auth.currentUser!!.uid,
 
-            /*
-             * Receiver disconnect.
-             */
+            role = role!!,
+
+            pairingCode =
+                pairingCode,
+
+            connected =
+                connected,
+
+            analysingEnabled =
+                analysingEnabled,
+
+            database =
+                database,
+
+            uid =
+                auth.currentUser!!.uid,
+
+            onStartAnalysing = {
+
+                /*
+                 * Enable automatic recording permanently.
+                 */
+                preferences.edit()
+                    .putBoolean(
+                        "analysingEnabled",
+                        true
+                    )
+                    .apply()
+
+                analysingEnabled = true
+
+                /*
+                 * Start foreground recording service.
+                 */
+                val intent =
+                    Intent(
+                        context,
+                        CallRecordingService::class.java
+                    ).apply {
+                        action =
+                            CallRecordingService
+                                .ACTION_START_MONITORING
+
+                        putExtra(
+                            "receiverUid",
+                            if (role == "sender" &&
+                                connected
+                            ) {
+                                /*
+                                 * Receiver UID will be
+                                 * obtained by the service
+                                 * from Firebase pairing data.
+                                 */
+                                ""
+                            } else {
+                                ""
+                            }
+                        }
+
+                        putExtra(
+                            "senderUid",
+                            auth.currentUser!!.uid
+                        )
+                    }
+
+                try {
+
+                    context.startForegroundService(
+                        intent
+                    )
+
+                } catch (
+                    exception: Exception
+                ) {
+                    /*
+                     * Android may reject the service
+                     * if required permission isn't granted.
+                     */
+                }
+            },
+
             onUnpair = {
 
                 if (
@@ -367,32 +429,27 @@ fun ShineApp(context: Context) {
                     pairingCode.isNotEmpty()
                 ) {
 
-                    val oldCode = pairingCode
+                    val oldCode =
+                        pairingCode
 
                     database
                         .child("pairingCodes")
                         .child(oldCode)
                         .updateChildren(
                             mapOf(
-                                "status" to "unpaired"
+                                "status" to
+                                    "unpaired"
                             )
                         )
                         .addOnCompleteListener {
 
-                            /*
-                             * IMPORTANT:
-                             *
-                             * Do NOT remove receiver role.
-                             *
-                             * Do NOT leave Dashboard.
-                             *
-                             * Only remove the active pairing.
-                             */
                             preferences.edit()
-                                .remove("pairingCode")
                                 .putString(
                                     "role",
                                     "receiver"
+                                )
+                                .remove(
+                                    "pairingCode"
                                 )
                                 .putBoolean(
                                     "dashboardVisible",
@@ -403,14 +460,13 @@ fun ShineApp(context: Context) {
                             pairingCode = ""
                             connected = false
                             dashboardVisible = true
-                            status = "Ready to pair"
+
+                            status =
+                                "Ready to pair"
                         }
                 }
             },
 
-            /*
-             * Receiver wants to pair with another Sender.
-             */
             onPairWithSender = {
 
                 dashboardVisible = false
@@ -439,6 +495,7 @@ fun ShineApp(context: Context) {
             onSenderSelected = {
 
                 role = "sender"
+
                 dashboardVisible = false
 
                 preferences.edit()
@@ -456,6 +513,7 @@ fun ShineApp(context: Context) {
             onReceiverSelected = {
 
                 role = "receiver"
+
                 dashboardVisible = false
 
                 preferences.edit()
@@ -476,16 +534,18 @@ fun ShineApp(context: Context) {
 
 
     /* ========================================================
-       PAIRING SCREEN
+       PAIRING
        ======================================================== */
 
     if (role == "sender") {
 
         SenderPairingScreen(
 
-            database = database,
+            database =
+                database,
 
-            uid = auth.currentUser!!.uid,
+            uid =
+                auth.currentUser!!.uid,
 
             onConnected = { code ->
 
@@ -515,9 +575,11 @@ fun ShineApp(context: Context) {
 
         ReceiverPairingScreen(
 
-            database = database,
+            database =
+                database,
 
-            uid = auth.currentUser!!.uid,
+            uid =
+                auth.currentUser!!.uid,
 
             onConnected = { code ->
 
@@ -540,6 +602,28 @@ fun ShineApp(context: Context) {
                 connected = true
                 dashboardVisible = true
                 status = "Paired"
+            },
+
+            onReturnToDashboard = {
+
+                preferences.edit()
+                    .putString(
+                        "role",
+                        "receiver"
+                    )
+                    .putBoolean(
+                        "dashboardVisible",
+                        true
+                    )
+                    .apply()
+
+                dashboardVisible = true
+
+                status =
+                    if (pairingCode.isNotEmpty())
+                        "Paired"
+                    else
+                        "Not connected"
             }
         )
     }
@@ -557,9 +641,10 @@ fun RoleSelectionScreen(
 ) {
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(24.dp),
 
         horizontalAlignment =
             Alignment.CenterHorizontally,
@@ -572,35 +657,46 @@ fun RoleSelectionScreen(
             text = "Shine",
             style =
                 MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold
+            fontWeight =
+                FontWeight.Bold
         )
 
         Spacer(
-            modifier = Modifier.height(12.dp)
+            modifier =
+                Modifier.height(12.dp)
         )
 
         Text(
-            text = "Connect two phones securely"
+            text =
+                "Connect two phones securely"
         )
 
         Spacer(
-            modifier = Modifier.height(32.dp)
+            modifier =
+                Modifier.height(32.dp)
         )
 
         Button(
-            onClick = onSenderSelected,
-            modifier = Modifier.fillMaxWidth()
+            onClick =
+                onSenderSelected,
+
+            modifier =
+                Modifier.fillMaxWidth()
         ) {
             Text("Sender")
         }
 
         Spacer(
-            modifier = Modifier.height(16.dp)
+            modifier =
+                Modifier.height(16.dp)
         )
 
         Button(
-            onClick = onReceiverSelected,
-            modifier = Modifier.fillMaxWidth()
+            onClick =
+                onReceiverSelected,
+
+            modifier =
+                Modifier.fillMaxWidth()
         ) {
             Text("Receiver")
         }
@@ -630,9 +726,10 @@ fun SenderPairingScreen(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(24.dp),
 
         horizontalAlignment =
             Alignment.CenterHorizontally,
@@ -642,14 +739,19 @@ fun SenderPairingScreen(
     ) {
 
         Text(
-            text = "Shine — Sender",
+            text =
+                "Shine — Sender",
+
             style =
                 MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
+
+            fontWeight =
+                FontWeight.Bold
         )
 
         Spacer(
-            modifier = Modifier.height(28.dp)
+            modifier =
+                Modifier.height(28.dp)
         )
 
         if (pairingCode.isEmpty()) {
@@ -677,7 +779,8 @@ fun SenderPairingScreen(
 
                         .addOnSuccessListener {
 
-                            pairingCode = code
+                            pairingCode =
+                                code
 
                             status =
                                 "Waiting for Receiver..."
@@ -699,25 +802,28 @@ fun SenderPairingScreen(
         } else {
 
             Text(
-                text = pairingCode,
+                text =
+                    pairingCode,
+
                 style =
                     MaterialTheme.typography.displayMedium,
-                fontWeight = FontWeight.Bold
+
+                fontWeight =
+                    FontWeight.Bold
             )
 
             Spacer(
-                modifier = Modifier.height(16.dp)
+                modifier =
+                    Modifier.height(16.dp)
             )
 
             Text(status)
 
             Spacer(
-                modifier = Modifier.height(20.dp)
+                modifier =
+                    Modifier.height(20.dp)
             )
 
-            /*
-             * Listen for Receiver.
-             */
             LaunchedEffect(pairingCode) {
 
                 database
@@ -725,22 +831,28 @@ fun SenderPairingScreen(
                     .child(pairingCode)
                     .addValueEventListener(
 
-                        object : ValueEventListener {
+                        object :
+                            ValueEventListener {
 
                             override fun onDataChange(
-                                snapshot: DataSnapshot
+                                snapshot:
+                                    DataSnapshot
                             ) {
 
                                 val receiverUid =
                                     snapshot
-                                        .child("receiverUid")
+                                        .child(
+                                            "receiverUid"
+                                        )
                                         .getValue(
                                             String::class.java
                                         )
 
                                 val firebaseStatus =
                                     snapshot
-                                        .child("status")
+                                        .child(
+                                            "status"
+                                        )
                                         .getValue(
                                             String::class.java
                                         )
@@ -762,7 +874,8 @@ fun SenderPairingScreen(
                             }
 
                             override fun onCancelled(
-                                error: DatabaseError
+                                error:
+                                    DatabaseError
                             ) {
 
                                 status =
@@ -784,7 +897,8 @@ fun SenderPairingScreen(
 fun ReceiverPairingScreen(
     database: DatabaseReference,
     uid: String,
-    onConnected: (String) -> Unit
+    onConnected: (String) -> Unit,
+    onReturnToDashboard: () -> Unit
 ) {
 
     var enteredCode by remember {
@@ -797,10 +911,25 @@ fun ReceiverPairingScreen(
         )
     }
 
+    var finished by remember {
+        mutableStateOf(false)
+    }
+
+    fun returnToDashboard() {
+
+        if (!finished) {
+
+            finished = true
+
+            onReturnToDashboard()
+        }
+    }
+
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(24.dp),
 
         horizontalAlignment =
             Alignment.CenterHorizontally,
@@ -810,25 +939,32 @@ fun ReceiverPairingScreen(
     ) {
 
         Text(
-            text = "Shine — Receiver",
+            text =
+                "Shine — Receiver",
+
             style =
                 MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
+
+            fontWeight =
+                FontWeight.Bold
         )
 
         Spacer(
-            modifier = Modifier.height(24.dp)
+            modifier =
+                Modifier.height(24.dp)
         )
 
         OutlinedTextField(
 
-            value = enteredCode,
+            value =
+                enteredCode,
 
             onValueChange = {
 
                 if (
                     it.length <= 6 &&
-                    it.all { character ->
+                    it.all {
+                        character ->
                         character.isDigit()
                     }
                 ) {
@@ -837,7 +973,9 @@ fun ReceiverPairingScreen(
             },
 
             label = {
-                Text("Enter Sender Code")
+                Text(
+                    "Enter Sender Code"
+                )
             },
 
             keyboardOptions =
@@ -853,86 +991,65 @@ fun ReceiverPairingScreen(
         )
 
         Spacer(
-            modifier = Modifier.height(16.dp)
+            modifier =
+                Modifier.height(16.dp)
         )
 
         Button(
 
             onClick = {
 
-                if (enteredCode.length != 6) {
+                if (
+                    enteredCode.length != 6
+                ) {
 
-                    status =
-                        "Enter a 6-digit code"
+                    returnToDashboard()
 
                     return@Button
                 }
 
-                status = "Connecting..."
+                status =
+                    "Connecting..."
 
                 val reference =
                     database
-                        .child("pairingCodes")
-                        .child(enteredCode)
+                        .child(
+                            "pairingCodes"
+                        )
+                        .child(
+                            enteredCode
+                        )
 
                 reference
                     .get()
 
-                    .addOnSuccessListener { snapshot ->
+                    .addOnSuccessListener {
+                            snapshot ->
 
-                        if (!snapshot.exists()) {
+                        if (
+                            !snapshot.exists()
+                        ) {
 
-                            status =
-                                "Invalid pairing code"
+                            returnToDashboard()
 
                             return@addOnSuccessListener
                         }
 
                         val senderUid =
                             snapshot
-                                .child("senderUid")
-                                .getValue(
-                                    String::class.java
+                                .child(
+                                    "senderUid"
                                 )
-
-                        val currentStatus =
-                            snapshot
-                                .child("status")
                                 .getValue(
                                     String::class.java
                                 )
 
                         if (
-                            senderUid.isNullOrEmpty()
+                            senderUid
+                                .isNullOrEmpty()
                         ) {
 
-                            status =
-                                "Invalid pairing data"
-
-                            return@addOnSuccessListener
-                        }
-
-                        /*
-                         * Don't connect to a code that is
-                         * already connected to another receiver.
-                         */
-                        val existingReceiver =
-                            snapshot
-                                .child("receiverUid")
-                                .getValue(
-                                    String::class.java
-                                )
-
-                        if (
-                            !existingReceiver
-                                .isNullOrEmpty() &&
-                            existingReceiver != uid &&
-                            currentStatus ==
-                            "connected"
-                        ) {
-
-                            status =
-                                "Sender is already connected"
+                            returnToDashboard()
 
                             return@addOnSuccessListener
                         }
@@ -940,33 +1057,36 @@ fun ReceiverPairingScreen(
                         val updates =
                             hashMapOf<String, Any>(
                                 "receiverUid" to uid,
-                                "status" to "connected"
+                                "status" to
+                                    "connected"
                             )
 
                         reference
-                            .updateChildren(updates)
+                            .updateChildren(
+                                updates
+                            )
 
                             .addOnSuccessListener {
 
-                                status =
-                                    "Connected to Sender"
+                                if (!finished) {
 
-                                onConnected(
-                                    enteredCode
-                                )
+                                    finished = true
+
+                                    onConnected(
+                                        enteredCode
+                                    )
+                                }
                             }
 
-                            .addOnFailureListener { error ->
+                            .addOnFailureListener {
 
-                                status =
-                                    "Connection failed: ${error.message}"
+                                returnToDashboard()
                             }
                     }
 
-                    .addOnFailureListener { error ->
+                    .addOnFailureListener {
 
-                        status =
-                            "Unable to connect: ${error.message}"
+                        returnToDashboard()
                     }
             },
 
@@ -978,7 +1098,28 @@ fun ReceiverPairingScreen(
         }
 
         Spacer(
-            modifier = Modifier.height(20.dp)
+            modifier =
+                Modifier.height(12.dp)
+        )
+
+        OutlinedButton(
+
+            onClick = {
+                returnToDashboard()
+            },
+
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            Text(
+                "Back to Dashboard"
+            )
+        }
+
+        Spacer(
+            modifier =
+                Modifier.height(20.dp)
         )
 
         Text(status)
@@ -995,8 +1136,10 @@ fun DashboardScreen(
     role: String,
     pairingCode: String,
     connected: Boolean,
+    analysingEnabled: Boolean,
     database: DatabaseReference,
     uid: String,
+    onStartAnalysing: () -> Unit,
     onUnpair: () -> Unit,
     onPairWithSender: () -> Unit
 ) {
@@ -1004,16 +1147,6 @@ fun DashboardScreen(
     val isReceiver =
         role == "receiver"
 
-
-    /*
-     * Receiver recording history.
-     *
-     * This is deliberately independent of pairingCode.
-     *
-     * Therefore:
-     *
-     * Unpairing does NOT delete old recordings.
-     */
     var recordings by remember {
         mutableStateOf(
             emptyList<RecordingItem>()
@@ -1022,7 +1155,7 @@ fun DashboardScreen(
 
 
     /* ========================================================
-       LOAD RECEIVER RECORDING HISTORY
+       LOAD RECEIVER RECORDINGS
        ======================================================== */
 
     LaunchedEffect(
@@ -1040,25 +1173,31 @@ fun DashboardScreen(
 
             .addValueEventListener(
 
-                object : ValueEventListener {
+                object :
+                    ValueEventListener {
 
                     override fun onDataChange(
-                        snapshot: DataSnapshot
+                        snapshot:
+                            DataSnapshot
                     ) {
 
                         val loaded =
                             mutableListOf<RecordingItem>()
 
                         for (
-                            child in snapshot.children
+                            child
+                            in snapshot.children
                         ) {
 
                             val id =
-                                child.key ?: continue
+                                child.key
+                                    ?: continue
 
                             val fileUrl =
                                 child
-                                    .child("fileUrl")
+                                    .child(
+                                        "fileUrl"
+                                    )
                                     .getValue(
                                         String::class.java
                                     )
@@ -1066,7 +1205,9 @@ fun DashboardScreen(
 
                             val createdAt =
                                 child
-                                    .child("createdAt")
+                                    .child(
+                                        "createdAt"
+                                    )
                                     .getValue(
                                         Long::class.java
                                     )
@@ -1074,7 +1215,9 @@ fun DashboardScreen(
 
                             val duration =
                                 child
-                                    .child("duration")
+                                    .child(
+                                        "duration"
+                                    )
                                     .getValue(
                                         String::class.java
                                     )
@@ -1082,7 +1225,9 @@ fun DashboardScreen(
 
                             val senderUid =
                                 child
-                                    .child("senderUid")
+                                    .child(
+                                        "senderUid"
+                                    )
                                     .getValue(
                                         String::class.java
                                     )
@@ -1090,11 +1235,16 @@ fun DashboardScreen(
 
                             loaded.add(
                                 RecordingItem(
-                                    id = id,
-                                    fileUrl = fileUrl,
-                                    createdAt = createdAt,
-                                    duration = duration,
-                                    senderUid = senderUid
+                                    id =
+                                        id,
+                                    fileUrl =
+                                        fileUrl,
+                                    createdAt =
+                                        createdAt,
+                                    duration =
+                                        duration,
+                                    senderUid =
+                                        senderUid
                                 )
                             )
                         }
@@ -1106,26 +1256,22 @@ fun DashboardScreen(
                     }
 
                     override fun onCancelled(
-                        error: DatabaseError
+                        error:
+                            DatabaseError
                     ) {
-                        /*
-                         * Keep existing recording list.
-                         */
                     }
                 }
             )
     }
 
 
-    /* ========================================================
-       MAIN DASHBOARD
-       ======================================================== */
-
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp)
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(20.dp)
     ) {
+
 
         /* ====================================================
            HEADER
@@ -1145,9 +1291,12 @@ fun DashboardScreen(
             Column {
 
                 Text(
-                    text = "Shine",
+                    text =
+                        "Shine",
+
                     style =
                         MaterialTheme.typography.headlineMedium,
+
                     fontWeight =
                         FontWeight.Bold
                 )
@@ -1161,10 +1310,6 @@ fun DashboardScreen(
                 )
             }
 
-
-            /*
-             * Receiver connection status only.
-             */
             if (isReceiver) {
 
                 Text(
@@ -1179,12 +1324,13 @@ fun DashboardScreen(
 
 
         Spacer(
-            modifier = Modifier.height(24.dp)
+            modifier =
+                Modifier.height(20.dp)
         )
 
 
         /* ====================================================
-           RECEIVER CONNECTION CARD
+           RECEIVER DASHBOARD
            ==================================================== */
 
         if (isReceiver) {
@@ -1200,9 +1346,12 @@ fun DashboardScreen(
                 ) {
 
                     Text(
-                        text = "Connection",
+                        text =
+                            "Connection",
+
                         style =
                             MaterialTheme.typography.titleLarge,
+
                         fontWeight =
                             FontWeight.Bold
                     )
@@ -1236,25 +1385,18 @@ fun DashboardScreen(
             }
 
             Spacer(
-                modifier = Modifier.height(20.dp)
+                modifier =
+                    Modifier.height(16.dp)
             )
-        }
 
 
-        /* ====================================================
-           RECEIVER RECORDINGS
-           ==================================================== */
-
-        if (isReceiver) {
+            /* =================================================
+               OLD + NEW RECORDINGS
+               ================================================= */
 
             Card(
                 modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .weight(
-                            1f,
-                            fill = false
-                        )
+                    Modifier.fillMaxWidth()
             ) {
 
                 Column(
@@ -1263,9 +1405,12 @@ fun DashboardScreen(
                 ) {
 
                     Text(
-                        text = "🎵 Received Calls",
+                        text =
+                            "🎵 Received Calls",
+
                         style =
                             MaterialTheme.typography.titleLarge,
+
                         fontWeight =
                             FontWeight.Bold
                     )
@@ -1275,7 +1420,9 @@ fun DashboardScreen(
                             Modifier.height(8.dp)
                     )
 
-                    if (recordings.isEmpty()) {
+                    if (
+                        recordings.isEmpty()
+                    ) {
 
                         Text(
                             text =
@@ -1291,20 +1438,23 @@ fun DashboardScreen(
 
                         Spacer(
                             modifier =
-                                Modifier.height(12.dp)
+                                Modifier.height(10.dp)
                         )
 
                         LazyColumn {
 
                             items(
-                                items = recordings,
+                                items =
+                                    recordings,
+
                                 key = {
                                     it.id
                                 }
                             ) { recording ->
 
                                 RecordingRow(
-                                    recording = recording
+                                    recording =
+                                        recording
                                 )
                             }
                         }
@@ -1314,17 +1464,18 @@ fun DashboardScreen(
 
             Spacer(
                 modifier =
-                    Modifier.height(20.dp)
+                    Modifier.height(16.dp)
             )
 
 
             /* =================================================
-               PAIR WITH SENDER
+               PAIR AGAIN
                ================================================= */
 
             if (!connected) {
 
                 Button(
+
                     onClick =
                         onPairWithSender,
 
@@ -1345,13 +1496,15 @@ fun DashboardScreen(
 
 
             /* =================================================
-               DISCONNECT / UNPAIR
+               UNPAIR
                ================================================= */
 
             if (connected) {
 
                 OutlinedButton(
-                    onClick = onUnpair,
+
+                    onClick =
+                        onUnpair,
 
                     modifier =
                         Modifier.fillMaxWidth()
@@ -1370,8 +1523,9 @@ fun DashboardScreen(
 
         } else {
 
+
             /* =================================================
-               SENDER MAIN CARD
+               SENDER
                ================================================= */
 
             Card(
@@ -1384,10 +1538,16 @@ fun DashboardScreen(
                         Modifier.padding(20.dp)
                 ) {
 
+                    /*
+                     * KEEP THIS EXACT UI
+                     */
                     Text(
-                        text = "🔍 Analysing",
+                        text =
+                            "🔍 Analysing",
+
                         style =
                             MaterialTheme.typography.titleLarge,
+
                         fontWeight =
                             FontWeight.Bold
                     )
@@ -1407,13 +1567,14 @@ fun DashboardScreen(
                             Modifier.height(16.dp)
                     )
 
+
+                    /*
+                     * User only needs to press this ONCE.
+                     */
                     Button(
-                        onClick = {
-                            /*
-                             * Recording functionality
-                             * will be implemented here.
-                             */
-                        },
+
+                        onClick =
+                            onStartAnalysing,
 
                         modifier =
                             Modifier.fillMaxWidth()
@@ -1421,6 +1582,28 @@ fun DashboardScreen(
 
                         Text(
                             "Start Analysing"
+                        )
+                    }
+
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(10.dp)
+                    )
+
+
+                    if (analysingEnabled) {
+
+                        Text(
+                            text =
+                                "🟢 Automatic call recording enabled"
+                        )
+
+                    } else {
+
+                        Text(
+                            text =
+                                "Recording is not enabled yet."
                         )
                     }
                 }
@@ -1448,9 +1631,12 @@ fun DashboardScreen(
             ) {
 
                 Text(
-                    text = "Settings",
+                    text =
+                        "Settings",
+
                     style =
                         MaterialTheme.typography.titleLarge,
+
                     fontWeight =
                         FontWeight.Bold
                 )
@@ -1480,7 +1666,7 @@ fun RecordingRow(
 ) {
 
     val context =
-        androidx.compose.ui.platform.LocalContext.current
+        LocalContext.current
 
     Card(
         modifier =
@@ -1499,6 +1685,7 @@ fun RecordingRow(
             Text(
                 text =
                     "📞 Recording",
+
                 fontWeight =
                     FontWeight.Bold
             )
@@ -1508,7 +1695,9 @@ fun RecordingRow(
                     Modifier.height(4.dp)
             )
 
-            if (recording.createdAt > 0) {
+            if (
+                recording.createdAt > 0
+            ) {
 
                 val date =
                     SimpleDateFormat(
@@ -1521,7 +1710,8 @@ fun RecordingRow(
                     )
 
                 Text(
-                    text = date
+                    text =
+                        date
                 )
             }
 
@@ -1540,18 +1730,12 @@ fun RecordingRow(
                     Modifier.height(8.dp)
             )
 
-
-            /*
-             * Playback.
-             *
-             * This expects fileUrl to point to an
-             * accessible audio file.
-             */
             if (
                 recording.fileUrl.isNotEmpty()
             ) {
 
                 Button(
+
                     onClick = {
 
                         try {
@@ -1571,9 +1755,6 @@ fun RecordingRow(
                         } catch (
                             exception: Exception
                         ) {
-                            /*
-                             * No compatible player.
-                             */
                         }
                     },
 
